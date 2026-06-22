@@ -1,16 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-VISITA A CLIENTES DE PEQUEÑA EMPRESA - CMAC CAJA AREQUIPA
-Unidad de Auditoría Interna
-
-App de campo para registrar visitas de verificación (domicilio, negocio, aval)
-con foto, hora, fecha y ubicación GPS, cargando los datos del cliente desde
-un Excel exportado del sistema.
-
-Funciona igual en celular y PC porque es una sola app web (Streamlit).
-Para que se pueda abrir desde el celular SIN estar en la misma red wifi,
-debe publicarse en Streamlit Community Cloud (ver README.md). Una vez
-publicada, cualquier persona la abre desde su propio internet/datos móviles.
+formulario de verificacion de datos visita 
 """
 
 import io
@@ -33,7 +23,7 @@ except Exception:
 # CONFIGURACIÓN GENERAL
 # --------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Visita a Clientes - Caja Arequipa",
+    page_title="Formulario - Visita de clientes",
     page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -130,8 +120,8 @@ init_state()
 # SIDEBAR: carga de Excel + búsqueda de cliente
 # --------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("## 🏦 Caja Arequipa")
-    st.caption("Unidad de Auditoría Interna")
+    st.markdown("")
+    st.caption("")
     st.divider()
     st.markdown("### 📂 Base de clientes (Excel)")
     excel_file = st.file_uploader(
@@ -158,7 +148,7 @@ with st.sidebar:
     st.divider()
     df = st.session_state.clientes_df
     if df is not None:
-        st.markdown("### 🔍 Buscar cliente")
+        st.markdown("### Buscar cliente")
         busq = st.text_input("DNI, código de cliente o nombre", key="busqueda_cliente")
         if busq:
             b = busq.strip().lower()
