@@ -192,8 +192,8 @@ with st.sidebar:
 
 cliente = st.session_state.cliente_actual
 
-st.title("📋 Visita a Clientes de Pequeña Empresa")
-st.caption("Formulario digital de verificación — Auditoría Interna · Caja Arequipa")
+st.title("Visita a Clientes")
+st.caption("Formulario digital de verificación")
 
 tabs = st.tabs([
     "1️⃣ Cliente y Crédito",
@@ -523,7 +523,7 @@ def visita_a_texto(visitas, clave):
 def generar_reporte():
     doc = Document()
     doc.add_heading("VISITA A CLIENTES DE PEQUEÑA EMPRESA", level=0)
-    p = doc.add_paragraph("CMAC Caja Arequipa — Unidad de Auditoría Interna")
+    p = doc.add_paragraph("")
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph(f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
@@ -617,7 +617,7 @@ with tabs[6]:
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("📄 Generar reporte Word de la visita")
+    st.subheader(" Generar reporte Word de la visita")
     st.caption("Incluye todos los datos llenados y las fotos/GPS de las verificaciones registradas.")
     if st.button("Generar documento", type="primary"):
         buf = generar_reporte()
