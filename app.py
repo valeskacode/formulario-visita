@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Formulario de verificación de datos visita - Versión Ultra-Robusta (Mapeo Columna D)
+Formulario de verificación de datos visita - Versión Muestra Final Automática
 """
 
 import io
@@ -119,7 +119,7 @@ def limpiar_texto_dni(val):
     txt = str(val).strip()
     if txt.endswith(".0"):
         txt = txt[:-2]
-    # Si son puros números y le faltan ceros a la izquierda para completar 8 dígitos
+    # Si son números y le faltan ceros a la izquierda para completar 8 dígitos
     if txt.isdigit() and len(txt) < 8 and len(txt) > 0:
         txt = txt.zfill(8)
     return txt
@@ -143,15 +143,13 @@ init_state()
 
 
 # --------------------------------------------------------------------------
-# BÚSQUEDA DE CLIENTE POR DNI (CORREGIDA)
+# BÚSQUEDA DE CLIENTE POR DNI
 # --------------------------------------------------------------------------
 def buscar_cliente_por_dni(dni_input, df):
     if not dni_input or df is None or len(df) == 0:
         return None
     
     txt_buscar = limpiar_texto_dni(dni_input)
-    
-    # Búsqueda exacta limpia
     mask = (df.get("PENDOC", pd.Series("", index=df.index)).astype(str) == txt_buscar)
     resultados = df[mask]
     
@@ -233,16 +231,15 @@ def mostrar_panel_validacion():
 
 
 # --------------------------------------------------------------------------
-# SIDEBAR: INTERFAZ DE CARGA OPTIMIZADA
+# SIDEBAR: INTERFAZ DE CARGA OPTIMIZADA (AUTO-MUESTRA FINAL)
 # --------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 📂 Base de clientes (Excel)")
     
-    # Solución al corte de 18 registros si hay títulos arriba
     filas_a_saltar = st.number_input(
         "Filas a saltar (Modifica si lee pocos registros):", 
         min_value=0, max_value=20, value=0, step=1,
-        help="Si tu Excel exportado tiene títulos institucionales arriba, pon 1, 2 o 3 para saltarlos."
+        help="Si tu Excel exportado tiene títulos arriba, pon 1, 2 o 3 para saltarlos."
     )
     
     excel_file = st.file_uploader(
@@ -253,16 +250,28 @@ with st.sidebar:
         try:
             excel_lector = pd.ExcelFile(excel_file)
             lista_hojas = excel_lector.sheet_names
-            hoja_seleccionada = st.selectbox("Selecciona la pestaña:", lista_hojas) if len(lista_hojas) > 1 else lista_hojas[0]
+            
+            # --- SELECCIÓN INTELIGENTE DE MUESTRA_FINAL ---
+            indice_defecto = 0
+            for idx, nombre_hoja in enumerate(lista_hojas):
+                if str(nombre_hoja).strip().upper() == "MUESTRA_FINAL":
+                    indice_defecto = idx
+                    break
+            
+            hoja_seleccionada = st.selectbox(
+                "Selecciona la pestaña:", 
+                lista_hojas, 
+                index=indice_defecto,
+                help="Se ha pre-seleccionado automáticamente 'MUESTRA_FINAL' si fue detectada."
+            )
 
-            # Carga limpia forzando formato texto desde el inicio
+            # Carga limpia forzando formato texto
             df = pd.read_excel(excel_file, sheet_name=hoja_seleccionada, skiprows=filas_a_saltar, dtype=str)
             df.columns = [str(c).strip().upper() for c in df.columns]
             
             # --- ASIGNACIÓN CRÍTICA POR POSICIÓN (COLUMNA D) ---
             if len(df.columns) >= 4:
-                nombre_original_col_d = df.columns[3] # Índice 3 es la 4ta columna (D)
-                # Forzar que la 4ta columna siempre se llame PENDOC para la lógica interna
+                nombre_original_col_d = df.columns[3] # Índice 3 = 4ta columna (D)
                 df = df.rename(columns={nombre_original_col_d: "PENDOC"})
             
             # Normalizar y limpiar todos los DNIs leídos de la columna D
@@ -272,8 +281,7 @@ with st.sidebar:
             st.session_state.clientes_df = df
             st.success(f"✅ ¡{len(df)} registros cargados de la pestaña '{hoja_seleccionada}'!")
             
-            # Pestaña oculta para auditar qué columnas se leyeron exactamente
-            with st.expander("👀 Ver qué está leyendo Pandas (Primeras 5 filas)"):
+            with st.expander("👀 Ver datos leídos (Primeras 5 filas)"):
                 st.dataframe(df.head(5))
                 
         except Exception as e:
@@ -353,13 +361,12 @@ tabs = st.tabs([
 ])
 
 # --------------------------------------------------------------------------
-# TAB 1 — DATOS DEL CLIENTE (BÚSQUEDA INTEGRADA AUTOMÁTICA)
+# TAB 1 — DATOS DEL CLIENTE
 # --------------------------------------------------------------------------
 with tabs[0]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Titular")
     
-    # Input directo de búsqueda rápida
     dni_input = st.text_input(
         "🔍 Buscar automáticamente por DNI / LE del Titular:", 
         value=dni,
@@ -457,7 +464,7 @@ with tabs[1]:
 
 
 # --------------------------------------------------------------------------
-# BLOQUE DINÁMICO DE VISITA IN SITU (FOTO + MAPA)
+# BLOQUE DINÁMICO DE VISITA IN SITU
 # --------------------------------------------------------------------------
 def bloque_verificacion(clave, etiqueta):
     st.markdown("##### 📍 Registro de verificación in situ")
@@ -474,9 +481,7 @@ def bloque_verificacion(clave, etiqueta):
     comentarios = st.text_area("Comentarios / Observaciones", key=f"comentarios_{clave}")
 
     st.markdown("**Ubicación GPS**")
-    cgps1, cgps2 = st.columns([1, 2])
-    with cgps1:
-        capturar = st.button("📡 Capturar coordenadas", key=f"btn_gps_{clave}")
+    capturar = st.button("📡 Capturar coordenadas", key=f"btn_gps_{clave}")
     lat, lon, precision = data.get("lat"), data.get("lon"), data.get("precision")
     
     if capturar:
@@ -491,10 +496,9 @@ def bloque_verificacion(clave, etiqueta):
         else:
             st.warning("Geolocalización no disponible.")
             
-    with cgps2:
-        if lat and lon:
-            st.success(f"Lat: {lat:.6f} | Lon: {lon:.6f} (±{precision:.0f}m)")
-            st.map(pd.DataFrame({"lat": [lat], "lon": [lon]}), zoom=15, height=150)
+    if lat and lon:
+        st.success(f"Lat: {lat:.6f} | Lon: {lon:.6f} (±{precision:.0f}m)")
+        st.map(pd.DataFrame({"lat": [lat], "lon": [lon]}), zoom=15, height=150)
 
     st.markdown("**Fotografía de Respaldo**")
     cfoto1, cfoto2 = st.columns(2)
@@ -514,7 +518,7 @@ def bloque_verificacion(clave, etiqueta):
 
 
 # --------------------------------------------------------------------------
-# TABS 3, 4, 5, 6 — FORMULARIOS COMPLETOS
+# TABS FORMULARIOS COMPLETOS
 # --------------------------------------------------------------------------
 with tabs[2]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
