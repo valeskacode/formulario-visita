@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-formulario de verificacion de datos visita 
+Formulario de verificación de datos visita - Versión Control de Clic / Doble Clic Móvil
 """
 
 import io
@@ -46,7 +46,7 @@ EXCEL_COLUMNS = [
     "ESTRATO", "TIPO_EXPEDIENTE",
 ]
 
-NARANJA = "C8102E"   # color institucional aproximado
+NARANJA = "C8102E"   
 AZUL = "1B3A5C"
 VERDE = "137333"
 ROJO = "a50e0e"
@@ -57,32 +57,51 @@ CUSTOM_CSS = f"""
 section[data-testid="stSidebar"] {{ background-color: #1B3A5C; }}
 section[data-testid="stSidebar"] * {{ color: #ffffff !important; }}
 h1, h2, h3 {{ color: #{AZUL}; }}
+
+/* Botones institucionales generales */
 div.stButton > button {{
     background-color: #{NARANJA}; color: white; border: none;
     border-radius: 6px; font-weight: 600;
 }}
 div.stButton > button:hover {{ background-color: #a30d24; color: white; }}
+
+/* DISEÑO ESPECIAL PARA FILAS DEL PANEL DE VALIDACIÓN (OPTIMIZADO MÓVIL) */
+.validation-box div.stButton > button {{
+    background-color: #ffffff !important;
+    color: #1B3A5C !important;
+    border: 1px solid #e0e0e0 !important;
+    text-align: left !important;
+    display: flex !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    padding: 8px 12px !important;
+    margin-bottom: 4px !important;
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+    font-size: 0.9rem !important;
+}}
+.validation-box div.stButton > button:hover {{
+    background-color: #f8f9fa !important;
+    border-color: #{AZUL} !important;
+}}
+
 .card {{
     background: white; padding: 1.2rem 1.4rem; border-radius: 10px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 1rem;
 }}
 .badge-ok {{ background:#e6f4ea; color:#137333; padding:6px 12px; border-radius:12px; font-size:0.85rem; font-weight:600; }}
 .badge-pend {{ background:#fce8e6; color:#a50e0e; padding:6px 12px; border-radius:12px; font-size:0.85rem; font-weight:600; }}
-
-.responsive-grid {{
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1rem;
+.validation-box {{
+    border: 2px solid #{AZUL}; border-radius: 10px; padding: 1.2rem;
+    background: white; margin: 0.5rem 0;
+}}
+.validation-title {{
+    font-size: 1.1rem; font-weight: 700; color: #{AZUL}; margin-bottom: 0.6rem;
+    border-bottom: 3px solid #{NARANJA}; padding-bottom: 0.3rem;
 }}
 @media (max-width: 768px) {{
-    .card {{ padding: 1rem 1.2rem; }}
-    .responsive-grid {{ grid-template-columns: 1fr; }}
-    h1 {{ font-size: 1.5rem; }}
-    h2 {{ font-size: 1.2rem; }}
-}}
-@media (max-width: 480px) {{
     .card {{ padding: 0.8rem 1rem; }}
-    section[data-testid="stSidebar"] {{ width: 100% !important; }}
+    h1 {{ font-size: 1.4rem; }}
 }}
 </style>
 """
@@ -90,7 +109,7 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------------
-# HELPERS
+# HELPERS DE LIMPIEZA
 # --------------------------------------------------------------------------
 def safe_str(v, default=""):
     if v is None:
@@ -118,14 +137,26 @@ def fmt_money(v):
     return f"S/. {safe_float(v):,.2f}"
 
 
+def limpiar_texto_dni(val):
+    if pd.isna(val) or val is None:
+        return ""
+    txt = str(val).strip()
+    if txt.endswith(".0"):
+        txt = txt[:-2]
+    if txt.isdigit() and len(txt) < 8 and len(txt) > 0:
+        txt = txt.zfill(8)
+    return txt
+
+
 def init_state():
     defaults = {
         "clientes_df": None,
         "cliente_actual": {},
-        "visitas": {},   # domicilio / negocio / aval -> dict con foto, gps, hora, etc
+        "visitas": {},   
         "garantias": [],
         "rcc": [],
-        "validaciones_marcadas": {},  # Guardar validaciones marcadas por usuario
+        "validaciones_marcadas": {},  
+        "click_timestamps": {},  # Almacena marcas de tiempo para detectar doble clic
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -139,13 +170,11 @@ init_state()
 # BÚSQUEDA DE CLIENTE POR DNI
 # --------------------------------------------------------------------------
 def buscar_cliente_por_dni(dni_input, df):
-    """Busca cliente en el DataFrame por DNI y retorna su fila completa."""
     if not dni_input or df is None or len(df) == 0:
         return None
-    
-    mask = (df.get("PENDOC", pd.Series("", index=df.index)).astype(str).str.strip() == str(dni_input).strip())
+    txt_buscar = limpiar_texto_dni(dni_input)
+    mask = (df.get("PENDOC", pd.Series("", index=df.index)).astype(str).apply(limpiar_texto_dni) == txt_buscar)
     resultados = df[mask]
-    
     if len(resultados) > 0:
         return resultados.iloc[0].to_dict()
     return None
@@ -155,7 +184,6 @@ def buscar_cliente_por_dni(dni_input, df):
 # VALIDACIÓN DE CRITERIOS
 # --------------------------------------------------------------------------
 def validar_visita():
-    """Retorna diccionario con validaciones según criterios de la tabla."""
     validaciones = {
         "documentos_enmiendas": False,
         "documentos_inconsistentes": False,
@@ -170,13 +198,10 @@ def validar_visita():
         "credito_refinanciado": False,
         "calificacion_diferente": False,
     }
-    
     if not safe_str(cliente.get("CLIENTE")):
         validaciones["documentos_sin_datos"] = True
-    
     if safe_str(cliente.get("DIAS_ATRASO")) and int(safe_float(cliente.get("DIAS_ATRASO"))) > 0:
         validaciones["calificacion_diferente"] = True
-    
     visitas = st.session_state.visitas
     for clave in ["domicilio", "negocio", "aval"]:
         if clave not in visitas:
@@ -185,12 +210,14 @@ def validar_visita():
         visita = visitas[clave]
         if not visita.get("foto_bytes"):
             validaciones["documentos_sin_firmas"] = True
-    
     return validaciones
 
 
 def mostrar_panel_validacion():
-    """Muestra el panel de validación estructurado como un cuadro/tabla limpia y estable."""
+    """Muestra el panel compacto con scroll y lógica de clic simple / doble clic"""
+    st.markdown('<div class="validation-box">', unsafe_allow_html=True)
+    st.markdown('<div class="validation-title">🔍 Panel de Validación - Criterios de Riesgo</div>', unsafe_allow_html=True)
+    
     validaciones_auto = validar_visita()
     
     criterios = {
@@ -202,90 +229,99 @@ def mostrar_panel_validacion():
         "sin_sustento_actividad": ("Sin sustento de actividad económica", "❌"),
         "sin_sustento_ingresos": ("Sin sustento de ingresos", "❌"),
         "sin_sustento_activos": ("Sin sustento de activos representativos", "⚠️"),
-        "conyuge_omitido": ("Cónyuge omitido en evaluation", "⚠️"),
+        "conyuge_omitido": ("Cónyuge omitido en evaluación", "⚠️"),
         "credito_reprogramado": ("Crédito reprogramado", "ℹ️"),
         "credito_refinanciado": ("Crédito refinanciado", "ℹ️"),
         "calificacion_diferente": ("Calificación diferente a la fecha de revisión", "⚠️"),
     }
     
-    # Cuadro contenedor con borde (Simula una tabla/recuadro del sistema)
-    with st.container(border=True):
-        st.markdown(f"<h3 style='color:#{AZUL}; margin-top:0; font-size:1.25rem;'>🔍 Panel de Validación - Criterios de Riesgo</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size:0.85rem; color:#555; margin-bottom:12px;'>Haga clic en la casilla para marcar o desmarcar el criterio detectado. La selección se mantendrá guardada automáticamente.</p>", unsafe_allow_html=True)
-        
-        # Encabezados de Columnas de la Tabla
-        col_h1, col_h2, col_h3 = st.columns([0.1, 0.15, 0.75])
-        col_h1.markdown("**Riesgo**")
-        col_h2.markdown("**¿Aplica?**")
-        col_h3.markdown("**Descripción del Criterio de Riesgo**")
-        st.markdown(f"<hr style='margin:4px 0 12px 0; border:none; border-top:2px solid #{AZUL};' />", unsafe_allow_html=True)
-        
-        # Agrupar los ítems por severidad
-        items_por_categoria = {"❌": [], "⚠️": [], "ℹ️": []}
-        for key, (label, icon) in criterios.items():
-            items_por_categoria[icon].append((key, label))
-        
-        # Renderizar filas ordenadas por severidad
+    items_por_categoria = {"❌": [], "⚠️": [], "ℹ️": []}
+    for key, (label, icon) in criterios.items():
+        items_por_categoria[icon].append((key, label))
+    
+    # CONTENEDOR COMPACTO CON SCROLL FIJO PARA CELULARES
+    with st.container(height=280, border=True):
         for icon in ["❌", "⚠️", "ℹ️"]:
             for key, label in items_por_categoria[icon]:
-                key_chk = f"check_{key}"
+                # Determinar si está marcado originalmente o por el usuario
+                is_checked = st.session_state.validaciones_marcadas.get(key, validaciones_auto.get(key, False))
                 
-                # Inicializar el estado en session_state si no existe previamente
-                if key_chk not in st.session_state:
-                    st.session_state[key_chk] = validaciones_auto.get(key, False)
+                # Formato visual solicitado (Cuadro lleno [ X ] o vacío [   ])
+                marcador_visual = "[ X ]" if is_checked else "[   ]"
+                texto_boton = f"{icon} {marcador_visual} {label}"
                 
-                # Construcción de la Fila
-                col1, col2, col3 = st.columns([0.1, 0.15, 0.75])
-                with col1:
-                    st.markdown(f"<span style='font-size:1.2rem;'>{icon}</span>", unsafe_allow_html=True)
-                with col2:
-                    # Checkbox nativo: un clic cambia de estado de manera robusta y mantiene persistencia
-                    st.checkbox(
-                        label="",
-                        key=key_chk,
-                        label_visibility="collapsed"
-                    )
-                with col3:
-                    st.markdown(f"<span style='font-size:0.95rem;'>{label}</span>", unsafe_allow_html=True)
-                
-                # Sincronizar el estado con el diccionario antiguo para mantener compatibilidad con el reporte Word
-                st.session_state.validaciones_marcadas[key] = st.session_state[key_chk]
-        
-        # Resumen final en la parte inferior del recuadro
-        st.markdown("<hr style='margin:12px 0 8px 0;' />", unsafe_allow_html=True)
-        total_marcados = sum(1 for k in criterios.keys() if st.session_state.get(f"check_{k}", False))
-        if total_marcados == 0:
-            st.success("✅ Sin riesgos identificados")
-        else:
-            st.warning(f"⚠️ {total_marcados} criterio(s) de riesgo identificado(s)")
+                # Crear el botón de fila completa
+                if st.button(texto_boton, key=f"btn_criterio_{key}", use_container_width=True):
+                    ahora = datetime.now().timestamp()
+                    ultimo_clic = st.session_state.click_timestamps.get(key, 0)
+                    st.session_state.click_timestamps[key] = ahora
+                    
+                    if not is_checked:
+                        # CASO 1: Estaba vacío -> Un solo clic lo marca inmediatamente
+                        st.session_state.validaciones_marcadas[key] = True
+                        st.rerun()
+                    else:
+                        # CASO 2: Estaba marcado -> Verifica si es un doble clic rápido (menos de 0.8 segundos)
+                        if (ahora - ultimo_clic) < 0.8:
+                            st.session_state.validaciones_marcadas[key] = False
+                            st.rerun()
+    
+    # Resumen inferior informativo
+    total_marcados = sum(1 for v in st.session_state.validaciones_marcadas.values() if v)
+    if total_marcados == 0:
+        st.success("✅ Sin riesgos identificados")
+    else:
+        st.warning(f"⚠️ {total_marcados} criterio(s) marcado(s) | Tip: Doble toque rápido para desmarcar")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------------
-# SIDEBAR: carga de Excel + búsqueda de cliente
+# SIDEBAR: INTERFAZ DE CARGA INTELIGENTE (AUTO-MUESTRA FINAL)
 # --------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("")
-    st.caption("")
-    st.divider()
     st.markdown("### 📂 Base de clientes (Excel)")
+    
+    filas_a_saltar = st.number_input(
+        "Filas a saltar (Modifica si lee pocos registros):", 
+        min_value=0, max_value=20, value=0, step=1
+    )
+    
     excel_file = st.file_uploader(
         "Cargar archivo .xlsx exportado del sistema",
-        type=["xlsx", "xls"],
-        help="Debe tener las columnas: RECNO, CODCLI, CLIENTE, PENDOC, etc.",
+        type=["xlsx", "xls"]
     )
+    
     if excel_file is not None:
         try:
-            df = pd.read_excel(excel_file, dtype=str)
-            df.columns = [c.strip().upper() for c in df.columns]
-            faltantes = [c for c in EXCEL_COLUMNS if c not in df.columns]
+            excel_lector = pd.ExcelFile(excel_file)
+            lista_hojas = excel_lector.sheet_names
+            
+            indice_defecto = 0
+            for idx, nombre_hoja in enumerate(lista_hojas):
+                if str(nombre_hoja).strip().upper() == "MUESTRA_FINAL":
+                    indice_defecto = idx
+                    break
+            
+            hoja_seleccionada = st.selectbox(
+                "Selecciona la pestaña:", 
+                lista_hojas, 
+                index=indice_defecto
+            )
+
+            df = pd.read_excel(excel_file, sheet_name=hoja_seleccionada, skiprows=filas_a_saltar, dtype=str)
+            df.columns = [str(c).strip().upper() for c in df.columns]
+            
+            if len(df.columns) >= 4:
+                nombre_original_col_d = df.columns[3]
+                df = df.rename(columns={nombre_original_col_d: "PENDOC"})
+            
+            if "PENDOC" in df.columns:
+                df["PENDOC"] = df["PENDOC"].apply(limpiar_texto_dni)
+                
             st.session_state.clientes_df = df
-            st.success(f"✅ {len(df)} registros cargados")
-            if faltantes:
-                st.warning(
-                    "Columnas no encontradas (se usarán vacías): "
-                    + ", ".join(faltantes[:6])
-                    + ("..." if len(faltantes) > 6 else "")
-                )
+            st.success(f"✅ ¡{len(df)} registros de '{hoja_seleccionada}'!")
+            
         except Exception as e:
             st.error(f"No se pudo leer el archivo: {e}")
 
@@ -319,16 +355,9 @@ with st.sidebar:
                 if st.button("➡️ Usar este cliente", use_container_width=True):
                     st.session_state.cliente_actual = fila
                     st.session_state.visitas = {}
-                    st.session_state.garantias = []
-                    st.session_state.rcc = []
                     st.session_state.validaciones_marcadas = {}
-                    # Limpiar estados de checkboxes anteriores
-                    for k in list(st.session_state.keys()):
-                        if k.startswith("check_"):
-                            del st.session_state[k]
+                    st.session_state.click_timestamps = {}
                     st.rerun()
-    else:
-        st.info("Sube el Excel para buscar clientes, o llena los datos manualmente en la pestaña 1.")
 
     st.divider()
     if st.session_state.cliente_actual:
@@ -339,10 +368,7 @@ with st.sidebar:
             st.session_state.garantias = []
             st.session_state.rcc = []
             st.session_state.validaciones_marcadas = {}
-            # Limpiar todos los estados de checkboxes
-            for k in list(st.session_state.keys()):
-                if k.startswith("check_"):
-                    del st.session_state[k]
+            st.session_state.click_timestamps = {}
             st.rerun()
 
 
@@ -352,17 +378,12 @@ st.title("Visita a Clientes")
 st.caption("Formulario digital de verificación")
 
 tabs = st.tabs([
-    "1️⃣ Cliente y Crédito",
-    "2️⃣ Historial y Riesgo",
-    "3️⃣ Visita Domicilio",
-    "4️⃣ Visita Negocio",
-    "5️⃣ Ingresos y Gastos",
-    "6️⃣ Garantías y Aval",
-    "7️⃣ Generar Reporte",
+    "1️⃣ Cliente y Crédito", "2️⃣ Historial y Riesgo", "3️⃣ Visita Domicilio",
+    "4️⃣ Visita Negocio", "5️⃣ Ingresos y Gastos", "6️⃣ Garantías y Aval", "7️⃣ Generar Reporte"
 ])
 
 # --------------------------------------------------------------------------
-# TAB 1 — Datos del cliente y crédito vigente
+# TAB 1 — DATOS CLIENTE
 # --------------------------------------------------------------------------
 with tabs[0]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -379,19 +400,12 @@ with tabs[0]:
         if cliente_encontrado:
             st.session_state.cliente_actual = cliente_encontrado
             cliente = cliente_encontrado
-            st.session_state.visitas = {}
-            st.session_state.garantias = []
-            st.session_state.rcc = []
-            st.session_state.validaciones_marcadas = {}
-            for k in list(st.session_state.keys()):
-                if k.startswith("check_"):
-                    del st.session_state[k]
             st.success(f"✅ Cliente encontrado: {safe_str(cliente.get('CLIENTE'))}")
             st.rerun()
         elif st.session_state.clientes_df is not None:
             st.warning("❌ Cliente no encontrado en la base de datos")
     
-    c1, c2, c3 = st.columns([1, 1, 1])
+    c1, c2, c3 = st.columns(3)
     with c1:
         agencia = st.text_input("Agencia", value=safe_str(cliente.get("AGENCIA")))
         dni = st.text_input("DNI / LE Titular (campo editable)", value=safe_str(cliente.get("PENDOC")), disabled=True)
@@ -408,7 +422,7 @@ with tabs[0]:
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Datos del crédito")
-    c1, c2, c3 = st.columns([1, 1, 1])
+    c1, c2, c3 = st.columns(3)
     with c1:
         importe = st.number_input("Importe desembolsado (S/.)", value=safe_float(cliente.get("IMPDESEMB_MN")), format="%.2f")
         saldo_capital = st.number_input("Saldo capital (S/.)", value=safe_float(cliente.get("SALDO_MN")), format="%.2f")
@@ -421,7 +435,7 @@ with tabs[0]:
         dias_atraso = st.text_input("Días de atraso", value=safe_str(cliente.get("DIAS_ATRASO")))
         prom_mora = st.text_input("Promedio de mora", value=safe_str(cliente.get("MORA_CONT")))
         calificacion = st.text_input("Calificación", value=safe_str(cliente.get("CATEG_RESULTANTE")))
-    c1, c2, c3 = st.columns([1, 1, 1])
+    c1, c2, c3 = st.columns(3)
     with c1:
         rubro = st.text_input("Rubro / Actividad económica", value=safe_str(cliente.get("ACTIVIDAD_ECON")))
     with c2:
@@ -430,13 +444,13 @@ with tabs[0]:
         modulo = st.text_input("Módulo", value=safe_str(cliente.get("MODULO")))
     st.markdown("</div>", unsafe_allow_html=True)
     
-    # Panel de validación integrado limpiamente
+    # PANEL DE VALIDACIÓN CON NUEVA LÓGICA DE DOBLE CLIC
     st.markdown('<div class="card">', unsafe_allow_html=True)
     mostrar_panel_validacion()
     st.markdown("</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------
-# TAB 2 — Historial crediticio y riesgo de sobreendeudamiento
+# TAB 2 — HISTORIAL
 # --------------------------------------------------------------------------
 with tabs[1]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -456,18 +470,19 @@ with tabs[1]:
         if len(hist):
             st.dataframe(hist[cols_show], use_container_width=True, hide_index=True)
         else:
-            st.info("No se encontraron otros créditos para este cliente en el Excel cargado.")
+            st.info("No se encontraron otros créditos históricos.")
     else:
-        st.info("Carga el Excel y selecciona un cliente para ver su historial automáticamente.")
+        st.info("Carga el Excel y selecciona un cliente para calcular el historial.")
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("4. Riesgo de sobreendeudamiento")
     deuda_directa_auto = 0.0
-    if df is not None and (dni or codcli):
-        for col in ["SALDO_VIGE", "SALDO_REFI"]:
+    if df is not None and (dni or codcli) and 'hist' in locals() and len(hist) > 0:
+        for col in ["SALDO_VIGE", "SALDO_REFI", "SALDO_MN"]:
             if col in hist.columns:
-                deuda_directa_auto += pd.to_numeric(hist[col], errors="coerce").fillna(0).sum()
+                deuda_directa_auto = pd.to_numeric(hist[col], errors="coerce").fillna(0).sum()
+                break
 
     c1, c2 = st.columns(2)
     with c1:
@@ -482,10 +497,9 @@ with tabs[1]:
 
 
 # --------------------------------------------------------------------------
-# Bloque reutilizable: registro de visita con foto + hora + GPS
+# BLOQUE REUTILIZABLE VERIFICACIÓN
 # --------------------------------------------------------------------------
 def bloque_verificacion(clave, etiqueta):
-    """Dibuja el bloque de 'Fecha/Hora/Lugar/Foto' para domicilio, negocio o aval."""
     st.markdown("##### 📍 Registro de verificación in situ")
     visitas = st.session_state.visitas
     data = visitas.get(clave, {})
@@ -512,40 +526,33 @@ def bloque_verificacion(clave, etiqueta):
                 lon = loc["coords"]["longitude"]
                 precision = loc["coords"].get("accuracy")
             else:
-                st.warning("No se pudo obtener la ubicación. Acepta el permiso de ubicación en el navegador e inténtalo de nuevo.")
+                st.warning("Permiso de ubicación denegado por el navegador.")
         else:
-            st.warning("El módulo de geolocalización no está instalado en este entorno. Ingresa la dirección manualmente abajo.")
+            st.warning("Módulo de geolocalización no disponible.")
     with cgps2:
         if lat and lon:
-            st.success(f"Lat: {lat:.6f}  |  Lon: {lon:.6f}" + (f"  (±{precision:.0f} m)" if precision else ""))
-            st.map(pd.DataFrame({"lat": [lat], "lon": [lon]}), zoom=15, height=180)
-        else:
-            st.caption("Sin ubicación capturada todavía. También puedes dejar solo la dirección escrita.")
+            st.success(f"Lat: {lat:.6f}  |  Lon: {lon:.6f}")
+            st.map(pd.DataFrame({"lat": [lat], "lon": [lon]}), zoom=15, height=150)
 
     st.markdown("**Foto de verificación**")
     cfoto1, cfoto2 = st.columns(2)
     with cfoto1:
-        foto_camara = st.camera_input("Tomar foto ahora (recomendado)", key=f"camara_{clave}")
+        foto_camara = st.camera_input("Tomar foto ahora", key=f"camara_{clave}")
     with cfoto2:
-        foto_archivo = st.file_uploader("...o subir desde galería", type=["jpg", "jpeg", "png"], key=f"upload_{clave}")
+        foto_archivo = st.file_uploader("Subir desde galería", type=["jpg", "jpeg", "png"], key=f"upload_{clave}")
     foto_final = foto_camara if foto_camara is not None else foto_archivo
 
     if st.button(f"💾 Registrar visita de {etiqueta}", key=f"guardar_{clave}", use_container_width=True):
         st.session_state.visitas[clave] = {
-            "fecha": str(fecha_v),
-            "hora": str(hora_v),
-            "entrevista_con": entrevista_con,
-            "comentarios": comentarios,
-            "lat": lat,
-            "lon": lon,
-            "precision": precision,
+            "fecha": str(fecha_v), "hora": str(hora_v), "entrevista_con": entrevista_con,
+            "comentarios": comentarios, "lat": lat, "lon": lon, "precision": precision,
             "foto_bytes": foto_final.getvalue() if foto_final is not None else None,
         }
-        st.success(f"✅ Visita de {etiqueta} registrada a las {hora_v} del {fecha_v}.")
+        st.success(f"✅ Visita de {etiqueta} guardada con éxito.")
 
 
 # --------------------------------------------------------------------------
-# TAB 3 — Visita al domicilio
+# TABS FORMULARIOS
 # --------------------------------------------------------------------------
 with tabs[2]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -563,9 +570,6 @@ with tabs[2]:
     bloque_verificacion("domicilio", "Domicilio")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# --------------------------------------------------------------------------
-# TAB 4 — Visita al negocio
-# --------------------------------------------------------------------------
 with tabs[3]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("6. Dirección del negocio")
@@ -582,9 +586,6 @@ with tabs[3]:
     bloque_verificacion("negocio", "Negocio")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# --------------------------------------------------------------------------
-# TAB 5 — Verificación de ingresos y gastos
-# --------------------------------------------------------------------------
 with tabs[4]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("8-9. Actividad y ventas")
@@ -614,9 +615,6 @@ with tabs[4]:
     c2.metric("Utilidad neta calculada", fmt_money(utilidad_neta))
     st.markdown("</div>", unsafe_allow_html=True)
 
-# --------------------------------------------------------------------------
-# TAB 6 — Garantías y visita al aval
-# --------------------------------------------------------------------------
 with tabs[5]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("7. Garantías")
@@ -665,7 +663,7 @@ with tabs[5]:
 
 
 # --------------------------------------------------------------------------
-# Generación del reporte Word
+# REPORTES WORD
 # --------------------------------------------------------------------------
 def add_heading(doc, text, size=13, color=AZUL):
     p = doc.add_paragraph()
@@ -674,7 +672,6 @@ def add_heading(doc, text, size=13, color=AZUL):
     run.font.size = Pt(size)
     run.font.color.rgb = RGBColor.from_string(color)
     return p
-
 
 def add_kv_table(doc, pairs, cols=2):
     table = doc.add_table(rows=0, cols=cols * 2)
@@ -688,33 +685,26 @@ def add_kv_table(doc, pairs, cols=2):
         row[c + 1].text = str(v) if v not in (None, "") else "-"
     return table
 
-
 def visita_a_texto(visitas, clave):
     d = visitas.get(clave)
     if not d:
         return None
     gps = f"{d['lat']:.6f}, {d['lon']:.6f}" if d.get("lat") and d.get("lon") else "No capturada"
     return [
-        ("Fecha", d.get("fecha", "-")),
-        ("Hora", d.get("hora", "-")),
-        ("Entrevista con", d.get("entrevista_con", "-")),
-        ("Ubicación GPS", gps),
+        ("Fecha", d.get("fecha", "-")), ("Hora", d.get("hora", "-")),
+        ("Entrevista con", d.get("entrevista_con", "-")), ("Ubicación GPS", gps),
         ("Comentarios", d.get("comentarios", "-")),
     ]
-
 
 def generar_reporte():
     doc = Document()
     doc.add_heading("VISITA A CLIENTES DE PEQUEÑA EMPRESA", level=0)
-    p = doc.add_paragraph("")
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph(f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
     add_heading(doc, "I. Datos del cliente")
     add_kv_table(doc, [
-        ("Agencia", agencia), ("DNI/LE Titular", dni),
-        ("Titular", titular), ("Cuenta cliente", cuenta),
-        ("Analista vigente", analista), ("Analista evaluador", analista_eval),
+        ("Agencia", agencia), ("DNI/LE Titular", dni), ("Titular", titular),
+        ("Cuenta cliente", cuenta), ("Analista vigente", analista), ("Analista evaluador", analista_eval),
         ("Importe", fmt_money(importe)), ("Saldo capital", fmt_money(saldo_capital)),
         ("Tipo de crédito", tipo_credito), ("Tipo SBS", tipo_sbs),
         ("Días de atraso", dias_atraso), ("Calificación", calificacion),
@@ -723,23 +713,19 @@ def generar_reporte():
 
     add_heading(doc, "II. Riesgo de sobreendeudamiento")
     add_kv_table(doc, [
-        ("Deuda directa", fmt_money(deuda_directa)),
-        ("Deuda potencial", fmt_money(deuda_potencial)),
-        ("Deuda total", fmt_money(deuda_total)),
-        ("Cuota/Resultado neto", f"{resultado_neto_rs:.2f}%"),
+        ("Deuda directa", fmt_money(deuda_directa)), ("Deuda potencial", fmt_money(deuda_potencial)),
+        ("Deuda total", fmt_money(deuda_total)), ("Cuota/Resultado neto", f"{resultado_neto_rs:.2f}%"),
         ("Pasivo/Patrimonio", f"{pasivo_patrimonio:.2f}%"),
     ])
 
     for clave, titulo, direccion_info in [
         ("domicilio", "III. Visita al domicilio", [
             ("Dirección", direccion_dom), ("Distrito", distrito_dom),
-            ("Provincia", provincia_dom), ("Departamento", departamento_dom),
-            ("Tipo de vivienda", tipo_vivienda),
+            ("Provincia", provincia_dom), ("Departamento", departamento_dom), ("Tipo de vivienda", tipo_vivienda),
         ]),
         ("negocio", "IV. Visita al negocio", [
             ("Dirección", direccion_neg), ("Distrito", distrito_neg),
-            ("Provincia", provincia_neg), ("Departamento", departamento_neg),
-            ("Actividad", tipo_negocio),
+            ("Provincia", provincia_neg), ("Departamento", departamento_neg), ("Actividad", tipo_negocio),
         ]),
         ("aval", "V. Visita al aval", [("Cuenta aval", cuenta_aval)]),
     ]:
@@ -747,13 +733,12 @@ def generar_reporte():
         add_kv_table(doc, direccion_info)
         verif = visita_a_texto(st.session_state.visitas, clave)
         if verif:
-            doc.add_paragraph("Registro de verificación:").bold = True
             add_kv_table(doc, verif)
             foto_bytes = st.session_state.visitas[clave].get("foto_bytes")
             if foto_bytes:
                 doc.add_picture(io.BytesIO(foto_bytes), width=Cm(8))
         else:
-            doc.add_paragraph("⚠ No se registró visita de verificación para esta sección.")
+            doc.add_paragraph("⚠ No se registró visita de verificación.")
 
     add_heading(doc, "VI. Verificación de ingresos y gastos")
     add_kv_table(doc, [
@@ -795,12 +780,6 @@ def generar_reporte():
     else:
         doc.add_paragraph("Sin validaciones críticas identificadas")
 
-    add_heading(doc, "Conformidad")
-    add_kv_table(doc, [
-        ("Hecho por", ""), ("Fecha", datetime.now().strftime("%d/%m/%Y")),
-        ("Revisado por", ""), ("Fecha", ""),
-    ])
-
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
@@ -814,16 +793,12 @@ with tabs[6]:
         if clave in st.session_state.visitas:
             d = st.session_state.visitas[clave]
             st.markdown(f"**{etiqueta}** — <span class='badge-ok'>Registrada</span>", unsafe_allow_html=True)
-            st.caption(f"{d['fecha']} {d['hora']} · {d.get('entrevista_con') or 'sin entrevistado'} · "
-                       f"{'con foto' if d.get('foto_bytes') else 'sin foto'} · "
-                       f"{'con GPS' if d.get('lat') else 'sin GPS'}")
         else:
             st.markdown(f"**{etiqueta}** — <span class='badge-pend'>Pendiente</span>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader(" Generar reporte Word de la visita")
-    st.caption("Incluye todos los datos llenados, fotos/GPS y validaciones marcadas.")
+    st.subheader("Generar reporte Word de la visita")
     if st.button("Generar documento", type="primary"):
         buf = generar_reporte()
         nombre = f"Visita_{safe_str(titular, 'cliente').replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
@@ -834,5 +809,5 @@ with tabs[6]:
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             use_container_width=True,
         )
-        st.success("Reporte generado. Descárgalo antes de cerrar la app: en el plan gratuito de hosting los archivos no quedan guardados permanentemente en el servidor.")
+        st.success("Reporte generado con éxito.")
     st.markdown("</div>", unsafe_allow_html=True)
