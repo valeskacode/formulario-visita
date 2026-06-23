@@ -81,6 +81,10 @@ div.stButton > button:hover {{ background-color: #a30d24; color: white; }}
     padding: 0.8rem; margin-bottom: 0.6rem; border-radius: 6px;
     display: flex; align-items: center; gap: 0.8rem;
     border-left: 4px solid #ddd;
+    cursor: pointer; transition: all 0.2s ease;
+}}
+.validation-item:hover {{
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }}
 .validation-ok {{
     background: #e6f4ea; border-left-color: #{VERDE};
@@ -93,6 +97,9 @@ div.stButton > button:hover {{ background-color: #a30d24; color: white; }}
 }}
 .validation-icon {{ font-size: 1.3rem; min-width: 30px; text-align: center; }}
 .validation-text {{ flex: 1; }}
+.validation-checkbox {{
+    cursor: pointer; accent-color: #{NARANJA};
+}}
 .responsive-grid {{
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -149,6 +156,7 @@ def init_state():
         "visitas": {},   # domicilio / negocio / aval -> dict con foto, gps, hora, etc
         "garantias": [],
         "rcc": [],
+        "validaciones_marcadas": {},  # Guardar validaciones marcadas por usuario
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -156,6 +164,23 @@ def init_state():
 
 
 init_state()
+
+
+# --------------------------------------------------------------------------
+# BÚSQUEDA DE CLIENTE POR DNI
+# --------------------------------------------------------------------------
+def buscar_cliente_por_dni(dni_input, df):
+    """Busca cliente en el DataFrame por DNI y retorna su fila completa."""
+    if not dni_input or df is None or len(df) == 0:
+        return None
+    
+    # Buscar exacta o similar
+    mask = (df.get("PENDOC", pd.Series("", index=df.index)).astype(str).str.strip() == str(dni_input).strip())
+    resultados = df[mask]
+    
+    if len(resultados) > 0:
+        return resultados.iloc[0].to_dict()
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -199,11 +224,11 @@ def validar_visita():
 
 
 def mostrar_panel_validacion():
-    """Muestra el panel de validación con criterios de riesgo."""
+    """Muestra el panel de validación con criterios interactivos."""
     st.markdown('<div class="validation-box">', unsafe_allow_html=True)
-    st.markdown('<div class="validation-title">🔍 Panel de Validación</div>', unsafe_allow_html=True)
+    st.markdown('<div class="validation-title">🔍 Panel de Validación - Criterios de Riesgo</div>', unsafe_allow_html=True)
     
-    validaciones = validar_visita()
+    validaciones_auto = validar_visita()
     
     criterios = {
         "documentos_enmiendas": ("Documentos con enmiendas", "⚠️"),
@@ -220,37 +245,51 @@ def mostrar_panel_validacion():
         "calificacion_diferente": ("Calificación diferente a la fecha de revisión", "⚠️"),
     }
     
-    items_criticos = []
-    items_advertencia = []
-    items_info = []
+    # Inicializar validaciones marcadas si no existen
+    if "validaciones_marcadas" not in st.session_state:
+        st.session_state.validaciones_marcadas = {}
     
+    items_por_categoria = {"❌": [], "⚠️": [], "ℹ️": []}
+    
+    # Agrupar por categoría
     for key, (label, icon) in criterios.items():
-        if validaciones[key]:
+        items_por_categoria[icon].append((key, label))
+    
+    # Mostrar críticos (❌) primero, luego advertencias (⚠️), luego info (ℹ️)
+    for icon in ["❌", "⚠️", "ℹ️"]:
+        for key, label in items_por_categoria[icon]:
+            # Determinar si está marcado (usuario o automático)
+            is_checked = st.session_state.validaciones_marcadas.get(key, validaciones_auto.get(key, False))
+            
+            # Determinar clase CSS
             if icon == "❌":
-                items_criticos.append((label, icon, "validation-error"))
+                clase = "validation-error"
             elif icon == "⚠️":
-                items_advertencia.append((label, icon, "validation-warning"))
+                clase = "validation-warning"
             else:
-                items_info.append((label, icon, "validation-error"))
+                clase = "validation-warning"
+            
+            col1, col2, col3 = st.columns([0.08, 0.08, 0.84])
+            with col1:
+                st.markdown(f'<div class="validation-icon">{icon}</div>', unsafe_allow_html=True)
+            with col2:
+                # Checkbox para marcar/desmarcar
+                st.session_state.validaciones_marcadas[key] = st.checkbox(
+                    label="",
+                    value=is_checked,
+                    key=f"check_{key}",
+                    label_visibility="collapsed"
+                )
+            with col3:
+                st.markdown(label)
     
-    # Mostrar críticos primero
-    for label, icon, clase in items_criticos + items_advertencia + items_info:
-        st.markdown(
-            f'<div class="validation-item {clase}">'
-            f'<div class="validation-icon">{icon}</div>'
-            f'<div class="validation-text">{label}</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
-    
-    if not any(validaciones.values()):
-        st.markdown(
-            '<div class="validation-item validation-ok">'
-            '<div class="validation-icon">✅</div>'
-            '<div class="validation-text">Todas las validaciones OK</div>'
-            '</div>',
-            unsafe_allow_html=True
-        )
+    # Resumen
+    st.divider()
+    total_marcados = sum(1 for v in st.session_state.validaciones_marcadas.values() if v)
+    if total_marcados == 0:
+        st.success(f"✅ Sin riesgos identificados")
+    else:
+        st.warning(f"⚠️ {total_marcados} criterio(s) de riesgo identificado(s)")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -326,6 +365,7 @@ with st.sidebar:
             st.session_state.visitas = {}
             st.session_state.garantias = []
             st.session_state.rcc = []
+            st.session_state.validaciones_marcadas = {}
             st.rerun()
 
 
@@ -350,19 +390,38 @@ tabs = st.tabs([
 with tabs[0]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Titular")
+    
+    # Campo de DNI con búsqueda automática
+    dni_input = st.text_input(
+        "🔍 DNI / LE Titular (Ingresa para buscar automáticamente)", 
+        value=safe_str(cliente.get("PENDOC")),
+        key="dni_search"
+    )
+    
+    # Si cambió el DNI, buscar cliente automáticamente
+    if dni_input and not cliente:
+        cliente_encontrado = buscar_cliente_por_dni(dni_input, st.session_state.clientes_df)
+        if cliente_encontrado:
+            st.session_state.cliente_actual = cliente_encontrado
+            cliente = cliente_encontrado
+            st.success(f"✅ Cliente encontrado: {safe_str(cliente.get('CLIENTE'))}")
+            st.rerun()
+        elif st.session_state.clientes_df is not None:
+            st.warning("❌ Cliente no encontrado en la base de datos")
+    
     c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
         agencia = st.text_input("Agencia", value=safe_str(cliente.get("AGENCIA")))
-        dni = st.text_input("DNI / LE Titular", value=safe_str(cliente.get("PENDOC")))
+        dni = st.text_input("DNI / LE Titular (campo editable)", value=safe_str(cliente.get("PENDOC")), disabled=True)
         codcli = st.text_input("Código de cliente", value=safe_str(cliente.get("CODCLI")))
     with c2:
-        titular = st.text_input("Nombre del titular", value=safe_str(cliente.get("CLIENTE")))
-        cuenta = st.text_input("Cuenta cliente", value=safe_str(cliente.get("BCCTA")))
-        operacion = st.text_input("Nro. de operación", value=safe_str(cliente.get("BCOPER")))
+        titular = st.text_input("Nombre del titular", value=safe_str(cliente.get("CLIENTE")), disabled=True)
+        cuenta = st.text_input("Cuenta cliente", value=safe_str(cliente.get("BCCTA")), disabled=True)
+        operacion = st.text_input("Nro. de operación", value=safe_str(cliente.get("BCOPER")), disabled=True)
     with c3:
-        analista = st.text_input("Analista vigente", value=safe_str(cliente.get("ANALISTA")))
-        analista_eval = st.text_input("Analista evaluador", value=safe_str(cliente.get("ANALISTA_EVAL")))
-        aprobado_por = st.text_input("Aprobado por", value=safe_str(cliente.get("USUARIO_APROB")))
+        analista = st.text_input("Analista vigente", value=safe_str(cliente.get("ANALISTA")), disabled=True)
+        analista_eval = st.text_input("Analista evaluador", value=safe_str(cliente.get("ANALISTA_EVAL")), disabled=True)
+        aprobado_por = st.text_input("Aprobado por", value=safe_str(cliente.get("USUARIO_APROB")), disabled=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -390,7 +449,9 @@ with tabs[0]:
     st.markdown("</div>", unsafe_allow_html=True)
     
     # Panel de validación
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     mostrar_panel_validacion()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------
 # TAB 2 — Historial crediticio y riesgo de sobreendeudamiento
@@ -732,6 +793,28 @@ def generar_reporte():
         for r in st.session_state.rcc:
             add_kv_table(doc, list(r.items()))
 
+    add_heading(doc, "IX. Validaciones Identificadas")
+    validaciones_marcadas = [k for k, v in st.session_state.validaciones_marcadas.items() if v]
+    if validaciones_marcadas:
+        criterios_labels = {
+            "documentos_enmiendas": "Documentos con enmiendas",
+            "documentos_inconsistentes": "Datos inconsistentes en documentos",
+            "documentos_sin_datos": "Documentos sin datos del cliente",
+            "documentos_sin_firmas": "Documentos sin firmas o fotos",
+            "documentos_duplicados": "Documentos duplicados",
+            "sin_sustento_actividad": "Sin sustento de actividad económica",
+            "sin_sustento_ingresos": "Sin sustento de ingresos",
+            "sin_sustento_activos": "Sin sustento de activos representativos",
+            "conyuge_omitido": "Cónyuge omitido en evaluación",
+            "credito_reprogramado": "Crédito reprogramado",
+            "credito_refinanciado": "Crédito refinanciado",
+            "calificacion_diferente": "Calificación diferente a la fecha de revisión",
+        }
+        for key in validaciones_marcadas:
+            doc.add_paragraph(f"• {criterios_labels.get(key, key)}", style='List Bullet')
+    else:
+        doc.add_paragraph("Sin validaciones críticas identificadas")
+
     add_heading(doc, "Conformidad")
     add_kv_table(doc, [
         ("Hecho por", ""), ("Fecha", datetime.now().strftime("%d/%m/%Y")),
@@ -760,7 +843,7 @@ with tabs[6]:
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader(" Generar reporte Word de la visita")
-    st.caption("Incluye todos los datos llenados y las fotos/GPS de las verificaciones registradas.")
+    st.caption("Incluye todos los datos llenados, fotos/GPS y validaciones marcadas.")
     if st.button("Generar documento", type="primary"):
         buf = generar_reporte()
         nombre = f"Visita_{safe_str(titular, 'cliente').replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
