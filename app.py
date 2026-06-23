@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Formulario de verificación de datos visita - Versión Compacta para Celular
+Formulario de verificación de datos visita - Versión Control de Clic / Doble Clic Móvil
 """
 
 import io
@@ -57,11 +57,34 @@ CUSTOM_CSS = f"""
 section[data-testid="stSidebar"] {{ background-color: #1B3A5C; }}
 section[data-testid="stSidebar"] * {{ color: #ffffff !important; }}
 h1, h2, h3 {{ color: #{AZUL}; }}
+
+/* Botones institucionales generales */
 div.stButton > button {{
     background-color: #{NARANJA}; color: white; border: none;
     border-radius: 6px; font-weight: 600;
 }}
 div.stButton > button:hover {{ background-color: #a30d24; color: white; }}
+
+/* DISEÑO ESPECIAL PARA FILAS DEL PANEL DE VALIDACIÓN (OPTIMIZADO MÓVIL) */
+.validation-box div.stButton > button {{
+    background-color: #ffffff !important;
+    color: #1B3A5C !important;
+    border: 1px solid #e0e0e0 !important;
+    text-align: left !important;
+    display: flex !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    padding: 8px 12px !important;
+    margin-bottom: 4px !important;
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+    font-size: 0.9rem !important;
+}}
+.validation-box div.stButton > button:hover {{
+    background-color: #f8f9fa !important;
+    border-color: #{AZUL} !important;
+}}
+
 .card {{
     background: white; padding: 1.2rem 1.4rem; border-radius: 10px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 1rem;
@@ -115,7 +138,6 @@ def fmt_money(v):
 
 
 def limpiar_texto_dni(val):
-    """Quita decimales flotantes y rellena con ceros a la izquierda para DNI."""
     if pd.isna(val) or val is None:
         return ""
     txt = str(val).strip()
@@ -134,6 +156,7 @@ def init_state():
         "garantias": [],
         "rcc": [],
         "validaciones_marcadas": {},  
+        "click_timestamps": {},  # Almacena marcas de tiempo para detectar doble clic
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -191,7 +214,7 @@ def validar_visita():
 
 
 def mostrar_panel_validacion():
-    """Muestra el panel optimizado en una sola vista con scroll interno para celular."""
+    """Muestra el panel compacto con scroll y lógica de clic simple / doble clic"""
     st.markdown('<div class="validation-box">', unsafe_allow_html=True)
     st.markdown('<div class="validation-title">🔍 Panel de Validación - Criterios de Riesgo</div>', unsafe_allow_html=True)
     
@@ -212,9 +235,6 @@ def mostrar_panel_validacion():
         "calificacion_diferente": ("Calificación diferente a la fecha de revisión", "⚠️"),
     }
     
-    if "validaciones_marcadas" not in st.session_state:
-        st.session_state.validaciones_marcadas = {}
-    
     items_por_categoria = {"❌": [], "⚠️": [], "ℹ️": []}
     for key, (label, icon) in criterios.items():
         items_por_categoria[icon].append((key, label))
@@ -223,20 +243,35 @@ def mostrar_panel_validacion():
     with st.container(height=280, border=True):
         for icon in ["❌", "⚠️", "ℹ️"]:
             for key, label in items_por_categoria[icon]:
+                # Determinar si está marcado originalmente o por el usuario
                 is_checked = st.session_state.validaciones_marcadas.get(key, validaciones_auto.get(key, False))
-                # Formato ultra compacto de una sola línea
-                st.session_state.validaciones_marcadas[key] = st.checkbox(
-                    f"{icon} {label}",
-                    value=is_checked,
-                    key=f"check_{key}"
-                )
+                
+                # Formato visual solicitado (Cuadro lleno [ X ] o vacío [   ])
+                marcador_visual = "[ X ]" if is_checked else "[   ]"
+                texto_boton = f"{icon} {marcador_visual} {label}"
+                
+                # Crear el botón de fila completa
+                if st.button(texto_boton, key=f"btn_criterio_{key}", use_container_width=True):
+                    ahora = datetime.now().timestamp()
+                    ultimo_clic = st.session_state.click_timestamps.get(key, 0)
+                    st.session_state.click_timestamps[key] = ahora
+                    
+                    if not is_checked:
+                        # CASO 1: Estaba vacío -> Un solo clic lo marca inmediatamente
+                        st.session_state.validaciones_marcadas[key] = True
+                        st.rerun()
+                    else:
+                        # CASO 2: Estaba marcado -> Verifica si es un doble clic rápido (menos de 0.8 segundos)
+                        if (ahora - ultimo_clic) < 0.8:
+                            st.session_state.validaciones_marcadas[key] = False
+                            st.rerun()
     
-    # Resumen inferior compacto
+    # Resumen inferior informativo
     total_marcados = sum(1 for v in st.session_state.validaciones_marcadas.values() if v)
     if total_marcados == 0:
         st.success("✅ Sin riesgos identificados")
     else:
-        st.warning(f"⚠️ {total_marcados} criterio(s) marcado(s)")
+        st.warning(f"⚠️ {total_marcados} criterio(s) marcado(s) | Tip: Doble toque rápido para desmarcar")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -254,8 +289,7 @@ with st.sidebar:
     
     excel_file = st.file_uploader(
         "Cargar archivo .xlsx exportado del sistema",
-        type=["xlsx", "xls"],
-        help="Debe tener las columnas: RECNO, CODCLI, CLIENTE, PENDOC, etc.",
+        type=["xlsx", "xls"]
     )
     
     if excel_file is not None:
@@ -263,7 +297,6 @@ with st.sidebar:
             excel_lector = pd.ExcelFile(excel_file)
             lista_hojas = excel_lector.sheet_names
             
-            # Búsqueda inteligente de MUESTRA_FINAL
             indice_defecto = 0
             for idx, nombre_hoja in enumerate(lista_hojas):
                 if str(nombre_hoja).strip().upper() == "MUESTRA_FINAL":
@@ -279,7 +312,6 @@ with st.sidebar:
             df = pd.read_excel(excel_file, sheet_name=hoja_seleccionada, skiprows=filas_a_saltar, dtype=str)
             df.columns = [str(c).strip().upper() for c in df.columns]
             
-            # Homologación crítica de la Columna D (Índice 3)
             if len(df.columns) >= 4:
                 nombre_original_col_d = df.columns[3]
                 df = df.rename(columns={nombre_original_col_d: "PENDOC"})
@@ -287,7 +319,6 @@ with st.sidebar:
             if "PENDOC" in df.columns:
                 df["PENDOC"] = df["PENDOC"].apply(limpiar_texto_dni)
                 
-            faltantes = [c for c in EXCEL_COLUMNS if c not in df.columns]
             st.session_state.clientes_df = df
             st.success(f"✅ ¡{len(df)} registros de '{hoja_seleccionada}'!")
             
@@ -324,6 +355,8 @@ with st.sidebar:
                 if st.button("➡️ Usar este cliente", use_container_width=True):
                     st.session_state.cliente_actual = fila
                     st.session_state.visitas = {}
+                    st.session_state.validaciones_marcadas = {}
+                    st.session_state.click_timestamps = {}
                     st.rerun()
 
     st.divider()
@@ -335,6 +368,7 @@ with st.sidebar:
             st.session_state.garantias = []
             st.session_state.rcc = []
             st.session_state.validaciones_marcadas = {}
+            st.session_state.click_timestamps = {}
             st.rerun()
 
 
@@ -410,7 +444,7 @@ with tabs[0]:
         modulo = st.text_input("Módulo", value=safe_str(cliente.get("MODULO")))
     st.markdown("</div>", unsafe_allow_html=True)
     
-    # Panel de validación integrado y responsivo
+    # PANEL DE VALIDACIÓN CON NUEVA LÓGICA DE DOBLE CLIC
     st.markdown('<div class="card">', unsafe_allow_html=True)
     mostrar_panel_validacion()
     st.markdown("</div>", unsafe_allow_html=True)
