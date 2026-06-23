@@ -69,24 +69,6 @@ div.stButton > button:hover {{ background-color: #a30d24; color: white; }}
 .badge-ok {{ background:#e6f4ea; color:#137333; padding:6px 12px; border-radius:12px; font-size:0.85rem; font-weight:600; }}
 .badge-pend {{ background:#fce8e6; color:#a50e0e; padding:6px 12px; border-radius:12px; font-size:0.85rem; font-weight:600; }}
 
-/* Ajuste específico para que los botones de selección se vean perfectamente redondos */
-div[data-testid="stColumn"] div.stButton > button {{
-    border-radius: 50% !important;
-    width: 38px !important;
-    height: 38px !important;
-    padding: 0 !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    background-color: #f0f2f6 !important;
-    color: black !important;
-    border: 1px solid #ch1f2d !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}}
-div[data-testid="stColumn"] div.stButton > button:hover {{
-    background-color: #e4e6eb !important;
-}}
-
 .responsive-grid {{
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -173,7 +155,7 @@ def buscar_cliente_por_dni(dni_input, df):
 # VALIDACIÓN DE CRITERIOS
 # --------------------------------------------------------------------------
 def validar_visita():
-    """Retorna diccionario con validaciones automáticas iniciales según criterios."""
+    """Retorna diccionario con validaciones según criterios de la tabla."""
     validaciones = {
         "documentos_enmiendas": False,
         "documentos_inconsistentes": False,
@@ -208,7 +190,7 @@ def validar_visita():
 
 
 def mostrar_panel_validacion():
-    """Muestra el panel de validación como una tabla limpia de 3 columnas con un botón circular."""
+    """Muestra el panel de validación estructurado como un cuadro/tabla limpia y estable."""
     validaciones_auto = validar_visita()
     
     criterios = {
@@ -220,67 +202,62 @@ def mostrar_panel_validacion():
         "sin_sustento_actividad": ("Sin sustento de actividad económica", "❌"),
         "sin_sustento_ingresos": ("Sin sustento de ingresos", "❌"),
         "sin_sustento_activos": ("Sin sustento de activos representativos", "⚠️"),
-        "conyuge_omitido": ("Cónyuge omitido en evaluación", "⚠️"),
+        "conyuge_omitido": ("Cónyuge omitido en evaluation", "⚠️"),
         "credito_reprogramado": ("Crédito reprogramado", "ℹ️"),
         "credito_refinanciado": ("Crédito refinanciado", "ℹ️"),
         "calificacion_diferente": ("Calificación diferente a la fecha de revisión", "⚠️"),
     }
     
-    # Cuadro contenedor de la tabla
+    # Cuadro contenedor con borde (Simula una tabla/recuadro del sistema)
     with st.container(border=True):
         st.markdown(f"<h3 style='color:#{AZUL}; margin-top:0; font-size:1.25rem;'>🔍 Panel de Validación - Criterios de Riesgo</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size:0.85rem; color:#555; margin-bottom:12px;'>Haga clic sobre el botón circular para seleccionar (🔵) o deseleccionar (⚪) el criterio correspondiente.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:0.85rem; color:#555; margin-bottom:12px;'>Haga clic en la casilla para marcar o desmarcar el criterio detectado. La selección se mantendrá guardada automáticamente.</p>", unsafe_allow_html=True)
         
-        # DEFINICIÓN DE LAS 3 COLUMNAS REQUERIDAS
-        col_h1, col_h2, col_h3 = st.columns([0.15, 0.15, 0.7])
-        col_h1.markdown("**Seleccionar**")
-        col_h2.markdown("**Riesgo**")
+        # Encabezados de Columnas de la Tabla
+        col_h1, col_h2, col_h3 = st.columns([0.1, 0.15, 0.75])
+        col_h1.markdown("**Riesgo**")
+        col_h2.markdown("**¿Aplica?**")
         col_h3.markdown("**Descripción del Criterio de Riesgo**")
         st.markdown(f"<hr style='margin:4px 0 12px 0; border:none; border-top:2px solid #{AZUL};' />", unsafe_allow_html=True)
         
-        # Agrupar ítems por nivel de riesgo para ordenamiento visual
+        # Agrupar los ítems por severidad
         items_por_categoria = {"❌": [], "⚠️": [], "ℹ️": []}
         for key, (label, icon) in criterios.items():
             items_por_categoria[icon].append((key, label))
         
-        # Dibujar las filas de la tabla
+        # Renderizar filas ordenadas por severidad
         for icon in ["❌", "⚠️", "ℹ️"]:
             for key, label in items_por_categoria[icon]:
-                key_state = f"state_{key}"
+                key_chk = f"check_{key}"
                 
-                # Inicializar estado en la memoria si no existe
-                if key_state not in st.session_state:
-                    st.session_state[key_state] = validaciones_auto.get(key, False)
+                # Inicializar el estado en session_state si no existe previamente
+                if key_chk not in st.session_state:
+                    st.session_state[key_chk] = validaciones_auto.get(key, False)
                 
-                # Determinar aspecto circular basado en la selección
-                icono_circular = "🔵" if st.session_state[key_state] else "⚪"
-                
-                # Renderizado de la fila en las 3 columnas
-                col1, col2, col3 = st.columns([0.15, 0.15, 0.7])
-                
+                # Construcción de la Fila
+                col1, col2, col3 = st.columns([0.1, 0.15, 0.75])
                 with col1:
-                    # Botón Circular de Selección
-                    if st.button(icono_circular, key=f"btn_{key}"):
-                        st.session_state[key_state] = not st.session_state[key_state]
-                        st.session_state.validaciones_marcadas[key] = st.session_state[key_state]
-                        st.rerun()
-                        
+                    st.markdown(f"<span style='font-size:1.2rem;'>{icon}</span>", unsafe_allow_html=True)
                 with col2:
-                    st.markdown(f"<span style='font-size:1.2rem; display:block; text-align:left; margin-top:5px;'>{icon}</span>", unsafe_allow_html=True)
-                    
+                    # Checkbox nativo: un clic cambia de estado de manera robusta y mantiene persistencia
+                    st.checkbox(
+                        label="",
+                        key=key_chk,
+                        label_visibility="collapsed"
+                    )
                 with col3:
-                    st.markdown(f"<span style='font-size:0.95rem; display:block; margin-top:7px;'>{label}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<span style='font-size:0.95rem;'>{label}</span>", unsafe_allow_html=True)
                 
-                # Sincronizar estado global para el Word
-                st.session_state.validaciones_marcadas[key] = st.session_state[key_state]
+                # Sincronizar el estado con el diccionario antiguo para mantener compatibilidad con el reporte Word
+                st.session_state.validaciones_marcadas[key] = st.session_state[key_chk]
         
-        # Barra de estado inferior interno del cuadro
+        # Resumen final en la parte inferior del recuadro
         st.markdown("<hr style='margin:12px 0 8px 0;' />", unsafe_allow_html=True)
-        total_marcados = sum(1 for k in criterios.keys() if st.session_state.get(f"state_{k}", False))
+        total_marcados = sum(1 for k in criterios.keys() if st.session_state.get(f"check_{k}", False))
         if total_marcados == 0:
             st.success("✅ Sin riesgos identificados")
         else:
-            st.warning(f"⚠️ {total_marcados} criterio(s) de riesgo seleccionado(s)")
+            st.warning(f"⚠️ {total_marcados} criterio(s) de riesgo identificado(s)")
 
 
 # --------------------------------------------------------------------------
@@ -345,9 +322,9 @@ with st.sidebar:
                     st.session_state.garantias = []
                     st.session_state.rcc = []
                     st.session_state.validaciones_marcadas = {}
-                    # Limpiar estados anteriores
+                    # Limpiar estados de checkboxes anteriores
                     for k in list(st.session_state.keys()):
-                        if k.startswith("state_") or k.startswith("check_"):
+                        if k.startswith("check_"):
                             del st.session_state[k]
                     st.rerun()
     else:
@@ -362,9 +339,9 @@ with st.sidebar:
             st.session_state.garantias = []
             st.session_state.rcc = []
             st.session_state.validaciones_marcadas = {}
-            # Limpiar estados almacenados
+            # Limpiar todos los estados de checkboxes
             for k in list(st.session_state.keys()):
-                if k.startswith("state_") or k.startswith("check_"):
+                if k.startswith("check_"):
                     del st.session_state[k]
             st.rerun()
 
@@ -407,7 +384,7 @@ with tabs[0]:
             st.session_state.rcc = []
             st.session_state.validaciones_marcadas = {}
             for k in list(st.session_state.keys()):
-                if k.startswith("state_") or k.startswith("check_"):
+                if k.startswith("check_"):
                     del st.session_state[k]
             st.success(f"✅ Cliente encontrado: {safe_str(cliente.get('CLIENTE'))}")
             st.rerun()
@@ -453,7 +430,7 @@ with tabs[0]:
         modulo = st.text_input("Módulo", value=safe_str(cliente.get("MODULO")))
     st.markdown("</div>", unsafe_allow_html=True)
     
-    # Renderizado ordenado del panel en 3 columnas
+    # Panel de validación integrado limpiamente
     st.markdown('<div class="card">', unsafe_allow_html=True)
     mostrar_panel_validacion()
     st.markdown("</div>", unsafe_allow_html=True)
@@ -857,5 +834,5 @@ with tabs[6]:
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             use_container_width=True,
         )
-        st.success("Reporte generado. Descárgalo antes de cerrar la app.")
+        st.success("Reporte generado. Descárgalo antes de cerrar la app: en el plan gratuito de hosting los archivos no quedan guardados permanentemente en el servidor.")
     st.markdown("</div>", unsafe_allow_html=True)
