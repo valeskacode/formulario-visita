@@ -48,6 +48,8 @@ EXCEL_COLUMNS = [
 
 NARANJA = "C8102E"   # color institucional aproximado
 AZUL = "1B3A5C"
+VERDE = "137333"
+ROJO = "a50e0e"
 
 CUSTOM_CSS = f"""
 <style>
@@ -64,8 +66,48 @@ div.stButton > button:hover {{ background-color: #a30d24; color: white; }}
     background: white; padding: 1.2rem 1.4rem; border-radius: 10px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 1rem;
 }}
-.badge-ok {{ background:#e6f4ea; color:#137333; padding:2px 10px; border-radius:12px; font-size:0.85rem; }}
-.badge-pend {{ background:#fce8e6; color:#a50e0e; padding:2px 10px; border-radius:12px; font-size:0.85rem; }}
+.badge-ok {{ background:#e6f4ea; color:#137333; padding:6px 12px; border-radius:12px; font-size:0.85rem; font-weight:600; }}
+.badge-pend {{ background:#fce8e6; color:#a50e0e; padding:6px 12px; border-radius:12px; font-size:0.85rem; font-weight:600; }}
+.validation-box {{
+    border: 2px solid #{AZUL}; border-radius: 10px; padding: 1.5rem;
+    background: linear-gradient(135deg, rgba(27,58,92,0.05) 0%, rgba(200,16,46,0.05) 100%);
+    margin: 1rem 0;
+}}
+.validation-title {{
+    font-size: 1.1rem; font-weight: 700; color: #{AZUL}; margin-bottom: 1rem;
+    border-bottom: 3px solid #{NARANJA}; padding-bottom: 0.5rem;
+}}
+.validation-item {{
+    padding: 0.8rem; margin-bottom: 0.6rem; border-radius: 6px;
+    display: flex; align-items: center; gap: 0.8rem;
+    border-left: 4px solid #ddd;
+}}
+.validation-ok {{
+    background: #e6f4ea; border-left-color: #{VERDE};
+}}
+.validation-warning {{
+    background: #fff3cd; border-left-color: #ff9800;
+}}
+.validation-error {{
+    background: #fce8e6; border-left-color: #{ROJO};
+}}
+.validation-icon {{ font-size: 1.3rem; min-width: 30px; text-align: center; }}
+.validation-text {{ flex: 1; }}
+.responsive-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}}
+@media (max-width: 768px) {{
+    .card {{ padding: 1rem 1.2rem; }}
+    .responsive-grid {{ grid-template-columns: 1fr; }}
+    h1 {{ font-size: 1.5rem; }}
+    h2 {{ font-size: 1.2rem; }}
+}}
+@media (max-width: 480px) {{
+    .card {{ padding: 0.8rem 1rem; }}
+    section[data-testid="stSidebar"] {{ width: 100% !important; }}
+}}
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -114,6 +156,103 @@ def init_state():
 
 
 init_state()
+
+
+# --------------------------------------------------------------------------
+# VALIDACIÓN DE CRITERIOS
+# --------------------------------------------------------------------------
+def validar_visita():
+    """Retorna diccionario con validaciones según criterios de la tabla."""
+    validaciones = {
+        "documentos_enmiendas": False,
+        "documentos_inconsistentes": False,
+        "documentos_sin_datos": False,
+        "documentos_sin_firmas": False,
+        "documentos_duplicados": False,
+        "sin_sustento_actividad": False,
+        "sin_sustento_ingresos": False,
+        "sin_sustento_activos": False,
+        "conyuge_omitido": False,
+        "credito_reprogramado": False,
+        "credito_refinanciado": False,
+        "calificacion_diferente": False,
+    }
+    
+    # Validar campos críticos
+    if not safe_str(cliente.get("CLIENTE")):
+        validaciones["documentos_sin_datos"] = True
+    
+    if safe_str(cliente.get("DIAS_ATRASO")) and int(safe_float(cliente.get("DIAS_ATRASO"))) > 0:
+        validaciones["calificacion_diferente"] = True
+    
+    # Validar visitas
+    visitas = st.session_state.visitas
+    for clave in ["domicilio", "negocio", "aval"]:
+        if clave not in visitas:
+            validaciones["sin_sustento_actividad"] = True
+            break
+        visita = visitas[clave]
+        if not visita.get("foto_bytes"):
+            validaciones["documentos_sin_firmas"] = True
+    
+    return validaciones
+
+
+def mostrar_panel_validacion():
+    """Muestra el panel de validación con criterios de riesgo."""
+    st.markdown('<div class="validation-box">', unsafe_allow_html=True)
+    st.markdown('<div class="validation-title">🔍 Panel de Validación</div>', unsafe_allow_html=True)
+    
+    validaciones = validar_visita()
+    
+    criterios = {
+        "documentos_enmiendas": ("Documentos con enmiendas", "⚠️"),
+        "documentos_inconsistentes": ("Datos inconsistentes en documentos", "⚠️"),
+        "documentos_sin_datos": ("Documentos sin datos del cliente", "❌"),
+        "documentos_sin_firmas": ("Documentos sin firmas o fotos", "❌"),
+        "documentos_duplicados": ("Documentos duplicados", "⚠️"),
+        "sin_sustento_actividad": ("Sin sustento de actividad económica", "❌"),
+        "sin_sustento_ingresos": ("Sin sustento de ingresos", "❌"),
+        "sin_sustento_activos": ("Sin sustento de activos representativos", "⚠️"),
+        "conyuge_omitido": ("Cónyuge omitido en evaluación", "⚠️"),
+        "credito_reprogramado": ("Crédito reprogramado", "ℹ️"),
+        "credito_refinanciado": ("Crédito refinanciado", "ℹ️"),
+        "calificacion_diferente": ("Calificación diferente a la fecha de revisión", "⚠️"),
+    }
+    
+    items_criticos = []
+    items_advertencia = []
+    items_info = []
+    
+    for key, (label, icon) in criterios.items():
+        if validaciones[key]:
+            if icon == "❌":
+                items_criticos.append((label, icon, "validation-error"))
+            elif icon == "⚠️":
+                items_advertencia.append((label, icon, "validation-warning"))
+            else:
+                items_info.append((label, icon, "validation-error"))
+    
+    # Mostrar críticos primero
+    for label, icon, clase in items_criticos + items_advertencia + items_info:
+        st.markdown(
+            f'<div class="validation-item {clase}">'
+            f'<div class="validation-icon">{icon}</div>'
+            f'<div class="validation-text">{label}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+    
+    if not any(validaciones.values()):
+        st.markdown(
+            '<div class="validation-item validation-ok">'
+            '<div class="validation-icon">✅</div>'
+            '<div class="validation-text">Todas las validaciones OK</div>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------------
@@ -211,7 +350,7 @@ tabs = st.tabs([
 with tabs[0]:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Titular")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
         agencia = st.text_input("Agencia", value=safe_str(cliente.get("AGENCIA")))
         dni = st.text_input("DNI / LE Titular", value=safe_str(cliente.get("PENDOC")))
@@ -228,7 +367,7 @@ with tabs[0]:
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Datos del crédito")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
         importe = st.number_input("Importe desembolsado (S/.)", value=safe_float(cliente.get("IMPDESEMB_MN")), format="%.2f")
         saldo_capital = st.number_input("Saldo capital (S/.)", value=safe_float(cliente.get("SALDO_MN")), format="%.2f")
@@ -241,7 +380,7 @@ with tabs[0]:
         dias_atraso = st.text_input("Días de atraso", value=safe_str(cliente.get("DIAS_ATRASO")))
         prom_mora = st.text_input("Promedio de mora", value=safe_str(cliente.get("MORA_CONT")))
         calificacion = st.text_input("Calificación", value=safe_str(cliente.get("CATEG_RESULTANTE")))
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns([1, 1, 1])
     with c1:
         rubro = st.text_input("Rubro / Actividad económica", value=safe_str(cliente.get("ACTIVIDAD_ECON")))
     with c2:
@@ -249,6 +388,9 @@ with tabs[0]:
     with c3:
         modulo = st.text_input("Módulo", value=safe_str(cliente.get("MODULO")))
     st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Panel de validación
+    mostrar_panel_validacion()
 
 # --------------------------------------------------------------------------
 # TAB 2 — Historial crediticio y riesgo de sobreendeudamiento
